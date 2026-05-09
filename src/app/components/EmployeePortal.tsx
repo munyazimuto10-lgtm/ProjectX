@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   User,
   FileText,
@@ -15,56 +15,68 @@ import {
   X,
   Save
 } from 'lucide-react';
+import { db } from '@/lib/db';
+import type { Employee, PayrollEntryRow } from '@/lib/db';
 
 interface EmployeePortalProps {
   onSignOut: () => void;
+  identifier: string;
 }
 
-const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
+const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }) => {
   const [activeView, setActiveView] = useState<'home' | 'payment-history' | 'tax-forms' | 'profile'>('home');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [editedEmployee, setEditedEmployee] = useState({
-    name: 'Sarah Johnson',
-    email: 'sarah.johnson@company.com',
-    phone: '+1 (555) 123-4567',
-  });
+  const [employee, setEmployee] = useState<Employee | null>(null);
+  const [entries, setEntries] = useState<PayrollEntryRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
-  // Mock employee data
-  const employee = {
-    name: 'Sarah Johnson',
-    email: 'sarah.johnson@company.com',
-    phone: '+1 (555) 123-4567',
-    department: 'Engineering',
-    position: 'Senior Developer',
-    employeeId: 'EMP-001',
-  };
+  const [editedEmployee, setEditedEmployee] = useState({ name: '', email: '', phone: '' });
 
-  // Mock latest payslip
-  const latestPayslip = {
-    date: 'March 2026',
-    grossPay: 8500.00,
-    netPay: 6375.00,
-    deductions: 2125.00,
-    periodStart: 'Mar 1, 2026',
-    periodEnd: 'Mar 31, 2026',
-  };
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError('');
 
-  // Mock payment history
-  const paymentHistory = [
-    { id: 1, month: 'March 2026', date: 'Mar 31, 2026', amount: 6375.00, status: 'Paid' },
-    { id: 2, month: 'February 2026', date: 'Feb 28, 2026', amount: 6375.00, status: 'Paid' },
-    { id: 3, month: 'January 2026', date: 'Jan 31, 2026', amount: 6375.00, status: 'Paid' },
-    { id: 4, month: 'December 2025', date: 'Dec 31, 2025', amount: 6375.00, status: 'Paid' },
-    { id: 5, month: 'November 2025', date: 'Nov 30, 2025', amount: 6375.00, status: 'Paid' },
-    { id: 6, month: 'October 2025', date: 'Oct 31, 2025', amount: 6375.00, status: 'Paid' },
-  ];
+    (async () => {
+      try {
+        const emp = await db.employees.getByIdentifier(identifier);
+        if (cancelled) return;
+        setEmployee(emp);
+        setEditedEmployee({ name: emp?.name ?? '', email: emp?.email ?? '', phone: emp?.phone ?? '' });
 
-  // Mock tax forms
-  const taxForms = [
-    { id: 1, name: 'W-2 Form 2025', year: '2025', date: 'Jan 31, 2026' },
-    { id: 2, name: 'W-2 Form 2024', year: '2024', date: 'Jan 31, 2025' },
-    { id: 3, name: '1099-MISC 2025', year: '2025', date: 'Feb 15, 2026' },
-  ];
+        if (emp) {
+          const rows = await db.payroll.listEmployeeEntries(emp.id);
+          if (cancelled) return;
+          setEntries(rows);
+        } else {
+          setEntries([]);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setLoadError((e as { message?: string })?.message ?? 'Failed to load employee portal data');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [identifier]);
+
+  const latestEntry = entries[0] ?? null;
+  const latestPayslip = useMemo(() => {
+    if (!latestEntry) return null;
+    return {
+      date: latestEntry.processed_date,
+      grossPay: Number(latestEntry.base_pay ?? 0),
+      netPay: Number(latestEntry.net_pay ?? 0),
+      deductions: Number((latestEntry.tax ?? 0) + (latestEntry.pension ?? 0)),
+      periodStart: latestEntry.processed_date,
+      periodEnd: latestEntry.processed_date,
+    };
+  }, [latestEntry]);
 
   const renderHome = () => (
     <div className="space-y-6">
@@ -76,10 +88,10 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
           </div>
           <div>
             <h1 className="text-2xl font-semibold">Welcome back,</h1>
-            <p className="text-xl">{employee.name}</p>
+            <p className="text-xl">{employee?.name ?? 'Employee'}</p>
           </div>
         </div>
-        <p className="text-blue-100 mt-2">{employee.position} • {employee.department}</p>
+        <p className="text-blue-100 mt-2">{employee?.position ?? '—'} • {employee?.department ?? '—'}</p>
       </div>
 
       {/* Latest Payslip Card */}
@@ -88,7 +100,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Latest Payslip</h2>
-              <p className="text-sm text-gray-600">{latestPayslip.date}</p>
+              <p className="text-sm text-gray-600">{latestPayslip?.date ?? 'No payslips yet'}</p>
             </div>
             <FileText className="w-6 h-6 text-green-600" />
           </div>
@@ -97,27 +109,27 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
         <div className="p-6 space-y-4">
           <div className="bg-green-50 rounded-xl p-4 border border-green-200">
             <p className="text-sm text-green-700 font-medium mb-1">Net Pay</p>
-            <p className="text-3xl font-bold text-green-800">${latestPayslip.netPay.toLocaleString()}</p>
+            <p className="text-3xl font-bold text-green-800">${(latestPayslip?.netPay ?? 0).toLocaleString()}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-gray-50 rounded-xl p-4">
               <p className="text-xs text-gray-600 mb-1">Gross Pay</p>
-              <p className="text-xl font-semibold text-gray-900">${latestPayslip.grossPay.toLocaleString()}</p>
+              <p className="text-xl font-semibold text-gray-900">${(latestPayslip?.grossPay ?? 0).toLocaleString()}</p>
             </div>
             <div className="bg-gray-50 rounded-xl p-4">
               <p className="text-xs text-gray-600 mb-1">Deductions</p>
-              <p className="text-xl font-semibold text-gray-900">${latestPayslip.deductions.toLocaleString()}</p>
+              <p className="text-xl font-semibold text-gray-900">${(latestPayslip?.deductions ?? 0).toLocaleString()}</p>
             </div>
           </div>
 
           <div className="pt-2">
             <p className="text-xs text-gray-500">
-              Pay Period: {latestPayslip.periodStart} - {latestPayslip.periodEnd}
+              Pay Period: {latestPayslip?.periodStart ?? '—'} - {latestPayslip?.periodEnd ?? '—'}
             </p>
           </div>
 
-          <button className="w-full bg-green-600 text-white py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-green-700 transition-colors active:scale-98">
+          <button disabled className="w-full bg-green-600 text-white py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-green-700 transition-colors active:scale-98 disabled:opacity-60 disabled:cursor-not-allowed">
             <Download className="w-5 h-5" />
             Download Payslip
           </button>
@@ -184,7 +196,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
         <p className="text-sm text-gray-600 mb-6">View and download all your payment records</p>
 
         <div className="space-y-3">
-          {paymentHistory.map((payment) => (
+          {entries.length > 0 ? entries.map((payment) => (
             <div
               key={payment.id}
               className="bg-gray-50 rounded-xl p-4 flex items-center justify-between hover:bg-gray-100 transition-colors"
@@ -194,18 +206,20 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
                   <DollarSign className="w-6 h-6 text-green-600" />
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-900">{payment.month}</p>
-                  <p className="text-sm text-gray-500">{payment.date}</p>
+                  <p className="font-semibold text-gray-900">{payment.processed_date}</p>
+                  <p className="text-sm text-gray-500">{payment.department}</p>
                 </div>
               </div>
               <div className="text-right">
-                <p className="font-semibold text-gray-900">${payment.amount.toLocaleString()}</p>
+                <p className="font-semibold text-gray-900">${Number(payment.net_pay ?? 0).toLocaleString()}</p>
                 <span className="inline-block px-3 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">
-                  {payment.status}
+                  Paid
                 </span>
               </div>
             </div>
-          ))}
+          )) : (
+            <div className="text-sm text-gray-500 text-center py-10">No payment history yet.</div>
+          )}
         </div>
       </div>
     </div>
@@ -218,28 +232,9 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
         <p className="text-sm text-gray-600 mb-6">Download your tax documents</p>
 
         <div className="space-y-3">
-          {taxForms.map((form) => (
-            <div
-              key={form.id}
-              className="bg-gray-50 rounded-xl p-4 hover:bg-gray-100 transition-colors"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                    <FileText className="w-5 h-5 text-purple-600" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-gray-900">{form.name}</p>
-                    <p className="text-xs text-gray-500">Available since {form.date}</p>
-                  </div>
-                </div>
-              </div>
-              <button className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-purple-700 transition-colors active:scale-98">
-                <Download className="w-4 h-4" />
-                Download PDF
-              </button>
-            </div>
-          ))}
+          <div className="text-sm text-gray-500 text-center py-10">
+            No tax forms available yet.
+          </div>
         </div>
       </div>
     </div>
@@ -270,7 +265,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
                 <User className="w-5 h-5 text-gray-600" />
                 <p className="text-sm text-gray-600">Full Name</p>
               </div>
-              <p className="text-base font-semibold text-gray-900 pl-8">{employee.name}</p>
+              <p className="text-base font-semibold text-gray-900 pl-8">{employee?.name ?? '—'}</p>
             </div>
 
             <div className="bg-gray-50 rounded-xl p-4">
@@ -278,7 +273,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
                 <Mail className="w-5 h-5 text-gray-600" />
                 <p className="text-sm text-gray-600">Email</p>
               </div>
-              <p className="text-base font-semibold text-gray-900 pl-8">{employee.email}</p>
+              <p className="text-base font-semibold text-gray-900 pl-8">{employee?.email ?? '—'}</p>
             </div>
 
             <div className="bg-gray-50 rounded-xl p-4">
@@ -286,7 +281,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
                 <Phone className="w-5 h-5 text-gray-600" />
                 <p className="text-sm text-gray-600">Phone</p>
               </div>
-              <p className="text-base font-semibold text-gray-900 pl-8">{employee.phone}</p>
+              <p className="text-base font-semibold text-gray-900 pl-8">{employee?.phone ?? '—'}</p>
             </div>
 
             <div className="bg-gray-50 rounded-xl p-4">
@@ -294,7 +289,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
                 <Building className="w-5 h-5 text-gray-600" />
                 <p className="text-sm text-gray-600">Department</p>
               </div>
-              <p className="text-base font-semibold text-gray-900 pl-8">{employee.department}</p>
+              <p className="text-base font-semibold text-gray-900 pl-8">{employee?.department ?? '—'}</p>
             </div>
 
             <div className="bg-gray-50 rounded-xl p-4">
@@ -302,7 +297,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
                 <Calendar className="w-5 h-5 text-gray-600" />
                 <p className="text-sm text-gray-600">Employee ID</p>
               </div>
-              <p className="text-base font-semibold text-gray-900 pl-8">{employee.employeeId}</p>
+              <p className="text-base font-semibold text-gray-900 pl-8">{employee?.id ?? '—'}</p>
             </div>
           </div>
         ) : (
@@ -378,9 +373,9 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
               onClick={() => {
                 setIsEditingProfile(false);
                 setEditedEmployee({
-                  name: employee.name,
-                  email: employee.email,
-                  phone: employee.phone,
+                  name: employee?.name ?? '',
+                  email: employee?.email ?? '',
+                  phone: employee?.phone ?? '',
                 });
               }}
               className="flex-1 bg-gray-100 text-gray-700 py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-gray-200 transition-colors active:scale-98"
@@ -390,11 +385,11 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
             </button>
             <button
               onClick={() => {
-                // In a real app, this would save to a backend
-                employee.name = editedEmployee.name;
-                employee.email = editedEmployee.email;
-                employee.phone = editedEmployee.phone;
-                setIsEditingProfile(false);
+                if (!employee) return;
+                db.employees
+                  .update(employee.id, { name: editedEmployee.name, email: editedEmployee.email, phone: editedEmployee.phone })
+                  .then(() => setEmployee({ ...employee, name: editedEmployee.name, email: editedEmployee.email, phone: editedEmployee.phone }))
+                  .finally(() => setIsEditingProfile(false));
               }}
               className="flex-1 bg-green-600 text-white py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-green-700 transition-colors active:scale-98"
             >
@@ -409,6 +404,25 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {loading && (
+        <div className="max-w-2xl mx-auto px-4 py-6 text-gray-500">Loading employee portal...</div>
+      )}
+      {!loading && loadError && (
+        <div className="max-w-2xl mx-auto px-4 py-6 text-red-600">{loadError}</div>
+      )}
+      {!loading && !loadError && !employee && (
+        <div className="max-w-2xl mx-auto px-4 py-6 text-gray-600">
+          Could not find an employee for <span className="font-medium">{identifier}</span>. Try signing in with an employee ID (e.g. EMP001) or the employee email.
+          <div className="mt-4">
+            <button
+              onClick={onSignOut}
+              className="bg-red-50 text-red-600 px-4 py-2 rounded-lg font-semibold hover:bg-red-100 transition-colors"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      )}
       {/* Header */}
       {activeView !== 'home' && (
         <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
@@ -430,10 +444,14 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut }) => {
 
       {/* Main Content */}
       <div className="max-w-2xl mx-auto px-4 py-6 pb-24">
-        {activeView === 'home' && renderHome()}
-        {activeView === 'payment-history' && renderPaymentHistory()}
-        {activeView === 'tax-forms' && renderTaxForms()}
-        {activeView === 'profile' && renderProfile()}
+        {!loading && !loadError && employee && (
+          <>
+            {activeView === 'home' && renderHome()}
+            {activeView === 'payment-history' && renderPaymentHistory()}
+            {activeView === 'tax-forms' && renderTaxForms()}
+            {activeView === 'profile' && renderProfile()}
+          </>
+        )}
       </div>
 
       {/* Bottom Navigation (always visible) */}

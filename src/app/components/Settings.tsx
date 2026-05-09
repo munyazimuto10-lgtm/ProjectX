@@ -25,14 +25,17 @@ export function Settings({ settings, onSave }: SettingsProps) {
 
   const handleTaxBracketChange = (index: number, field: keyof TaxBracket, value: string) => {
     const updatedBrackets = [...localSettings.taxBrackets];
-    const numValue = field === 'maxIncome' && value === '' ? null : parseFloat(value);
+    const bracket = updatedBrackets[index];
+    if (!bracket) return;
 
-    if (field === 'rate') {
-      updatedBrackets[index] = { ...updatedBrackets[index], [field]: numValue };
-    } else if (field === 'minIncome' || field === 'maxIncome') {
-      updatedBrackets[index] = { ...updatedBrackets[index], [field]: numValue };
+    if (field === 'maxIncome') {
+      updatedBrackets[index] = { ...bracket, maxIncome: value === '' ? null : parseFloat(value) };
+    } else if (field === 'minIncome') {
+      updatedBrackets[index] = { ...bracket, minIncome: parseFloat(value) || 0 };
+    } else if (field === 'rate') {
+      updatedBrackets[index] = { ...bracket, rate: parseFloat(value) || 0 };
     } else if (field === 'baseAmount') {
-      updatedBrackets[index] = { ...updatedBrackets[index], [field]: numValue };
+      updatedBrackets[index] = { ...bracket, baseAmount: parseFloat(value) || 0 };
     }
 
     setLocalSettings({ ...localSettings, taxBrackets: updatedBrackets });
@@ -53,7 +56,7 @@ export function Settings({ settings, onSave }: SettingsProps) {
   const addTaxBracket = () => {
     const lastBracket = localSettings.taxBrackets[localSettings.taxBrackets.length - 1];
     const newBracket: TaxBracket = {
-      minIncome: lastBracket.maxIncome || 0,
+      minIncome: lastBracket?.maxIncome ?? 0,
       maxIncome: null,
       rate: 0,
       baseAmount: 0,

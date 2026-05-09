@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { Bell, LayoutDashboard, Users, DollarSign, FileText, Settings, Menu, X, Search, Filter, LogOut } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { EmployeeDirectory } from './components/EmployeeDirectory.js';
@@ -10,10 +11,15 @@ import PayrollReports from './components/PayrollReports.js';
 import { Authentication } from './components/Authentication.js';
 import { Notifications } from './components/Notifications.js';
 import EmployeePortal from './components/EmployeePortal.js';
+import { db } from '@/lib/db';
+import type { NotificationRow } from '@/lib/db';
+import { supabase } from '@/lib/supabase';
+import { PROJECTX_PORTAL_ROLE_KEY, resolveAppRole } from '@/lib/auth';
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userRole, setUserRole] = useState<'admin' | 'employee' | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authHydrated, setAuthHydrated] = useState(false);
+  const userRole = session?.user ? resolveAppRole(session.user) : null;
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -21,23 +27,101 @@ export default function App() {
   const [departmentFilter, setDepartmentFilter] = useState('all');
   const notificationRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, next) => {
+      setSession(next);
+    });
+
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      setAuthHydrated(true);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const adminName =
+    (session?.user.user_metadata?.full_name as string | undefined)?.trim() ||
+    session?.user.email?.split('@')[0] ||
+    'Admin';
+  const adminInitials = adminName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(p => p[0]?.toUpperCase() ?? '')
+    .join('') || 'AD';
+
   // Payroll settings state
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>({
-    taxBrackets: [
-      { minIncome: 0, maxIncome: 3000, rate: 10, baseAmount: 0 },
-      { minIncome: 3000, maxIncome: 6000, rate: 15, baseAmount: 300 },
-      { minIncome: 6000, maxIncome: null, rate: 20, baseAmount: 750 },
-    ],
-    pensionRate: 6,
+    taxBrackets: [],
+    pensionRate: 0,
   });
 
   // Notification data with state
-  const [notificationData, setNotificationData] = useState([
-    { id: 1, title: 'Payroll Processing Complete', message: 'March payroll has been successfully processed', time: '2 hours ago', unread: true },
-    { id: 2, title: 'New Employee Added', message: 'Ruvimbo Moyo joined Engineering department', time: '5 hours ago', unread: true },
-    { id: 3, title: 'Audit Required', message: '3 payroll entries need your review', time: '1 day ago', unread: true },
-    { id: 4, title: 'System Update', message: 'New features available in version 2.1', time: '2 days ago', unread: false },
-  ]);
+  type UiNotification = { id: number; title: string; message: string; time: string; unread: boolean };
+  const toUi = (n: NotificationRow): UiNotification => ({
+    id: n.id,
+    title: n.title,
+    message: n.message,
+    time: db.timeAgo(n.created_at),
+    unread: !n.is_read,
+  });
+  const [notificationData, setNotificationData] = useState<UiNotification[]>([]);
+
+  const [summaryData, setSummaryData] = useState({
+    totalPayroll: '$0.00',
+    pendingAudits: 0,
+    recentUpdates: 0,
+  });
+  const [payrollTrendsData, setPayrollTrendsData] = useState<{ month: string; amount: number }[]>([]);
+  const [departmentPayrollData, setDepartmentPayrollData] = useState<{ department: string; amount: number }[]>([]);
+  const [recentEmployeeUpdates, setRecentEmployeeUpdates] = useState<{ name: string; department: string; action: string; date: string }[]>([]);
+
+  useEffect(() => {
+    if (!session || userRole !== 'admin') return;
+    let cancelled = false;
+
+    (async () => {
+      const [{ pensionRate, taxBrackets }, notifs, trends, deptPayroll, recent, latestRun, pending] = await Promise.all([
+        db.settings.get(),
+        db.notifications.list(),
+        db.payroll.trends(),
+        db.payroll.departmentPayroll(),
+        db.recentActivity(),
+        db.payroll.latestRun(),
+        db.payroll.countPendingAudits(),
+      ]);
+
+      if (cancelled) return;
+
+      setPayrollSettings({
+        pensionRate,
+        taxBrackets: taxBrackets.map(b => ({
+          minIncome: Number(b.min_income),
+          maxIncome: b.max_income === null ? null : Number(b.max_income),
+          rate: Number(b.rate),
+          baseAmount: Number(b.base_amount),
+        })),
+      });
+
+      setNotificationData((notifs ?? []).map(toUi));
+      setPayrollTrendsData(trends ?? []);
+      setDepartmentPayrollData(deptPayroll ?? []);
+      setRecentEmployeeUpdates(recent ?? []);
+
+      setSummaryData({
+        totalPayroll: `$${Number(latestRun?.total_net_pay ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        pendingAudits: pending ?? 0,
+        recentUpdates: (recent ?? []).length,
+      });
+    })().catch(() => {
+      // Leave empty states if DB isn't reachable yet.
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session, userRole]);
 
   // Calculate unread count
   const unreadCount = notificationData.filter(n => n.unread).length;
@@ -59,27 +143,71 @@ export default function App() {
     };
   }, [isNotificationOpen]);
 
-  // Show authentication screen if not authenticated
-  if (!isAuthenticated) {
-    return <Authentication onAuthenticated={(role) => {
-      setIsAuthenticated(true);
-      setUserRole(role);
-    }} />;
+  const handleSignOut = async () => {
+    try {
+      localStorage.removeItem(PROJECTX_PORTAL_ROLE_KEY);
+    } catch {
+      /* ignore */
+    }
+    await supabase.auth.signOut();
+    setSession(null);
+    setActiveTab('dashboard');
+  };
+
+  if (!authHydrated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-600">
+        Loading session…
+      </div>
+    );
   }
 
-  // Show Employee Portal for employee users
+  if (!session) {
+    return <Authentication />;
+  }
+
+  if (userRole === null) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-6 text-center">
+        <p className="text-gray-800 font-medium max-w-md mb-2">Your Supabase Auth user needs a role in metadata.</p>
+        <p className="text-sm text-gray-600 max-w-lg mb-6">
+          In Supabase Dashboard → Authentication → Users → select your user → User Metadata,
+          add for example{' '}
+          <code className="bg-gray-200 px-1 rounded text-xs">{'{ "role": "admin" }'}</code> or{' '}
+          <code className="bg-gray-200 px-1 rounded text-xs">{'{ "role": "employee" }'}</code>, then refresh this page.
+        </p>
+        <button
+          type="button"
+          onClick={() => void handleSignOut()}
+          className="px-4 py-2 rounded-lg bg-red-600 text-white text-sm hover:bg-red-700"
+        >
+          Sign out
+        </button>
+      </div>
+    );
+  }
+
   if (userRole === 'employee') {
-    return <EmployeePortal onSignOut={() => {
-      setIsAuthenticated(false);
-      setUserRole(null);
-    }} />;
+    return (
+      <EmployeePortal
+        onSignOut={() => void handleSignOut()}
+        identifier={session.user.email ?? ''}
+      />
+    );
   }
 
   // Show Admin Dashboard for admin users
   const handleSaveSettings = (newSettings: PayrollSettings) => {
     setPayrollSettings(newSettings);
-    // In a real application, this would save to a database
-    console.log('Payroll settings updated:', newSettings);
+    void db.settings.save(
+      newSettings.pensionRate,
+      newSettings.taxBrackets.map(b => ({
+        min_income: b.minIncome,
+        max_income: b.maxIncome,
+        rate: b.rate,
+        base_amount: b.baseAmount,
+      })),
+    );
 
     // Add notification
     addNotification(
@@ -95,37 +223,6 @@ export default function App() {
     { id: 'reports', label: 'Payroll Reports', icon: FileText },
     { id: 'auditing', label: 'Auditing', icon: FileText },
     { id: 'settings', label: 'Settings', icon: Settings },
-  ];
-
-  const summaryData = {
-    totalPayroll: '$487,342.50',
-    pendingAudits: 12,
-    recentUpdates: 8,
-  };
-
-  const payrollTrendsData = [
-    { month: 'Oct', amount: 425000 },
-    { month: 'Nov', amount: 445000 },
-    { month: 'Dec', amount: 468000 },
-    { month: 'Jan', amount: 452000 },
-    { month: 'Feb', amount: 471000 },
-    { month: 'Mar', amount: 487342 },
-  ];
-
-  const departmentPayrollData = [
-    { department: 'Engineering', amount: 185000 },
-    { department: 'Sales', amount: 142000 },
-    { department: 'Marketing', amount: 78000 },
-    { department: 'HR', amount: 52000 },
-    { department: 'Finance', amount: 30342 },
-  ];
-
-  const recentEmployeeUpdates = [
-    { name: 'Ruvimbo Moyo', action: 'Added', date: '2026-04-03', department: 'Engineering' },
-    { name: 'Tinashe Ncube', action: 'Updated', date: '2026-04-03', department: 'Marketing' },
-    { name: 'Tariro Sibanda', action: 'Salary Adjusted', date: '2026-04-02', department: 'Sales' },
-    { name: 'Tendai Dube', action: 'Added', date: '2026-04-02', department: 'HR' },
-    { name: 'Nyasha Ndlovu', action: 'Updated', date: '2026-04-01', department: 'Finance' },
   ];
 
   // Filter employee updates based on search and department
@@ -147,6 +244,7 @@ export default function App() {
     setNotificationData(prevData =>
       prevData.map(n => n.id === notificationId ? { ...n, unread: false } : n)
     );
+    void db.notifications.markRead(notificationId);
   };
 
   // Clear all notifications
@@ -154,6 +252,7 @@ export default function App() {
     setNotificationData(prevData =>
       prevData.map(n => ({ ...n, unread: false }))
     );
+    void db.notifications.clearAll();
   };
 
   // View all notifications (navigate to notifications view)
@@ -164,14 +263,10 @@ export default function App() {
 
   // Add new notification
   const addNotification = (title: string, message: string) => {
-    const newNotification = {
-      id: Date.now(),
-      title,
-      message,
-      time: 'Just now',
-      unread: true,
-    };
-    setNotificationData(prevData => [newNotification, ...prevData]);
+    void db.notifications.add(title, message).then((row) => {
+      const ui = toUi(row);
+      setNotificationData(prevData => [ui, ...prevData]);
+    });
   };
 
   return (
@@ -214,19 +309,15 @@ export default function App() {
           <div className="p-4 border-t border-gray-200">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white">
-                FM
+                {adminInitials}
               </div>
               <div className="flex-1">
-                <p className="text-sm font-medium text-gray-900">Munyaradzi Zimuto</p>
+                <p className="text-sm font-medium text-gray-900">{adminName}</p>
                 <p className="text-xs text-gray-500">Admin</p>
               </div>
             </div>
             <button
-              onClick={() => {
-                setIsAuthenticated(false);
-                setUserRole(null);
-                setActiveTab('dashboard');
-              }}
+              onClick={() => void handleSignOut()}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
             >
               <LogOut className="w-4 h-4" />
@@ -254,7 +345,7 @@ export default function App() {
               </button>
               <div>
                 <h2 className="text-xl font-semibold text-gray-900">Dashboard</h2>
-                <p className="text-sm text-gray-500">Welcome back, Munyaradzi</p>
+                <p className="text-sm text-gray-500">Welcome back, {adminName}</p>
               </div>
             </div>
 
