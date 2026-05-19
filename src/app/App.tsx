@@ -1,88 +1,174 @@
-import { useState, useRef, useEffect } from 'react';
-import type { Session } from '@supabase/supabase-js';
-import { Bell, LayoutDashboard, Users, DollarSign, FileText, Settings, Menu, X, Search, Filter, LogOut } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
-import { EmployeeDirectory } from './components/EmployeeDirectory.js';
-import { PayrollProcessing } from './components/PayrollProcessing.js';
-import { Settings as SettingsComponent } from './components/Settings.js';
-import type { PayrollSettings } from './components/Settings.js';
-import { AuditQueue } from './components/AuditQueue.js';
-import PayrollReports from './components/PayrollReports.js';
-import { Authentication } from './components/Authentication.js';
-import { Notifications } from './components/Notifications.js';
-import EmployeePortal from './components/EmployeePortal.js';
-import { db } from '@/lib/db';
-import type { NotificationRow } from '@/lib/db';
-import { supabase } from '@/lib/supabase';
-import { PROJECTX_PORTAL_ROLE_KEY, resolveAppRole } from '@/lib/auth';
+// Import React hooks for state, refs, and lifecycle
+import { useState, useRef, useEffect } from "react";
+// Import Session type from Supabase
+import type { Session } from "@supabase/supabase-js";
+// Import icon components from lucide-react
+import {
+  Bell,
+  LayoutDashboard,
+  Users,
+  DollarSign,
+  FileText,
+  Settings,
+  Menu,
+  X,
+  Search,
+  Filter,
+  LogOut,
+} from "lucide-react";
+// Import charting components from recharts
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+} from "recharts";
+// Import all page/component modules
+import { EmployeeDirectory } from "./components/EmployeeDirectory.js";
+import { PayrollProcessing } from "./components/PayrollProcessing.js";
+import { Settings as SettingsComponent } from "./components/Settings.js";
+import type { PayrollSettings } from "./components/Settings.js";
+import { AuditQueue } from "./components/AuditQueue.js";
+import PayrollReports from "./components/PayrollReports.js";
+import { Authentication } from "./components/Authentication.js";
+import { Notifications } from "./components/Notifications.js";
+import EmployeePortal from "./components/EmployeePortal.js";
+// Import database layer
+import { db, timeAgo } from "@/lib/db";
+// Import notification row type
+import type { NotificationRow } from "@/lib/db";
+// Import Supabase client
+import { supabase } from "@/lib/supabase";
+// Import authentication utilities
+import { PROJECTX_PORTAL_ROLE_KEY, resolveAppRole } from "@/lib/auth";
 
+// Main App component - admin dashboard
 export default function App() {
+  // Current authenticated Supabase session (null if not logged in)
   const [session, setSession] = useState<Session | null>(null);
+  // Tracks whether authentication state has been loaded from storage
   const [authHydrated, setAuthHydrated] = useState(false);
+  // Resolved app role (admin or employee) for the current user
   const userRole = session?.user ? resolveAppRole(session.user) : null;
-  const [activeTab, setActiveTab] = useState('dashboard');
+  // Currently active tab/page (dashboard, employees, payroll, etc.)
+  const [activeTab, setActiveTab] = useState("dashboard");
+  // Controls sidebar visibility on mobile
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  // Controls notification dropdown visibility
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('all');
+  // Search query for filtering recent updates
+  const [searchQuery, setSearchQuery] = useState("");
+  // Department filter for recent updates (or "all")
+  const [departmentFilter, setDepartmentFilter] = useState("all");
+  // Ref to notification dropdown for click-outside detection
   const notificationRef = useRef<HTMLDivElement>(null);
 
+  // Set up authentication state tracking on component mount
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, next) => {
+    // Subscribe to auth state changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, next) => {
+      // Update session when auth state changes
       setSession(next);
     });
 
+    // Get current session from storage
     supabase.auth.getSession().then(({ data: { session: s } }) => {
+      // Set initial session
       setSession(s);
+      // Mark authentication as hydrated (loaded from storage)
       setAuthHydrated(true);
     });
 
+    // Cleanup: unsubscribe from auth changes
     return () => subscription.unsubscribe();
   }, []);
 
+  // Extract admin name from session user metadata or email
   const adminName =
     (session?.user.user_metadata?.full_name as string | undefined)?.trim() ||
-    session?.user.email?.split('@')[0] ||
-    'Admin';
-  const adminInitials = adminName
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(p => p[0]?.toUpperCase() ?? '')
-    .join('') || 'AD';
+    session?.user.email?.split("@")[0] ||
+    "Admin";
+  // Generate admin initials from name for avatar
+  const adminInitials =
+    adminName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase() ?? "")
+      .join("") || "AD";
 
-  // Payroll settings state
+  // Payroll system settings (tax brackets and pension rate)
   const [payrollSettings, setPayrollSettings] = useState<PayrollSettings>({
     taxBrackets: [],
     pensionRate: 0,
   });
 
-  // Notification data with state
-  type UiNotification = { id: number; title: string; message: string; time: string; unread: boolean };
+  // UI notification data type (with formatted time and unread flag)
+  type UiNotification = {
+    id: number;
+    title: string;
+    message: string;
+    time: string;
+    unread: boolean;
+  };
+  // Convert database notification row to UI notification format
   const toUi = (n: NotificationRow): UiNotification => ({
     id: n.id,
     title: n.title,
     message: n.message,
-    time: db.timeAgo(n.created_at),
+    // Format timestamp as relative time (e.g., "5 minutes ago")
+    time: timeAgo(n.created_at),
+    // Mark as unread if not read in database
     unread: !n.is_read,
   });
-  const [notificationData, setNotificationData] = useState<UiNotification[]>([]);
+  // Array of notifications to display
+  const [notificationData, setNotificationData] = useState<UiNotification[]>(
+    [],
+  );
 
+  // Dashboard summary statistics
   const [summaryData, setSummaryData] = useState({
-    totalPayroll: '$0.00',
+    // Total payroll amount for latest run
+    totalPayroll: "$0.00",
+    // Number of pending audits
     pendingAudits: 0,
+    // Number of recent employee updates
     recentUpdates: 0,
   });
-  const [payrollTrendsData, setPayrollTrendsData] = useState<{ month: string; amount: number }[]>([]);
-  const [departmentPayrollData, setDepartmentPayrollData] = useState<{ department: string; amount: number }[]>([]);
-  const [recentEmployeeUpdates, setRecentEmployeeUpdates] = useState<{ name: string; department: string; action: string; date: string }[]>([]);
+  // Payroll trends over time (for line chart)
+  const [payrollTrendsData, setPayrollTrendsData] = useState<
+    { month: string; amount: number }[]
+  >([]);
+  // Department payroll breakdown (for bar chart)
+  const [departmentPayrollData, setDepartmentPayrollData] = useState<
+    { department: string; amount: number }[]
+  >([]);
+  // Recent employee activity (adds/updates)
+  const [recentEmployeeUpdates, setRecentEmployeeUpdates] = useState<
+    { name: string; department: string; action: string; date: string }[]
+  >([]);
 
   useEffect(() => {
-    if (!session || userRole !== 'admin') return;
+    if (!session || userRole !== "admin") return;
     let cancelled = false;
 
     (async () => {
-      const [{ pensionRate, taxBrackets }, notifs, trends, deptPayroll, recent, latestRun, pending] = await Promise.all([
+      const [
+        { pensionRate, taxBrackets },
+        notifs,
+        trends,
+        deptPayroll,
+        recent,
+        latestRun,
+        pending,
+      ] = await Promise.all([
         db.settings.get(),
         db.notifications.list(),
         db.payroll.trends(),
@@ -96,7 +182,7 @@ export default function App() {
 
       setPayrollSettings({
         pensionRate,
-        taxBrackets: taxBrackets.map(b => ({
+        taxBrackets: taxBrackets.map((b) => ({
           minIncome: Number(b.min_income),
           maxIncome: b.max_income === null ? null : Number(b.max_income),
           rate: Number(b.rate),
@@ -110,7 +196,7 @@ export default function App() {
       setRecentEmployeeUpdates(recent ?? []);
 
       setSummaryData({
-        totalPayroll: `$${Number(latestRun?.total_net_pay ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        totalPayroll: `$${Number(latestRun?.total_net_pay ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         pendingAudits: pending ?? 0,
         recentUpdates: (recent ?? []).length,
       });
@@ -124,22 +210,25 @@ export default function App() {
   }, [session, userRole]);
 
   // Calculate unread count
-  const unreadCount = notificationData.filter(n => n.unread).length;
+  const unreadCount = notificationData.filter((n) => n.unread).length;
 
   // Close notification dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+      if (
+        notificationRef.current &&
+        !notificationRef.current.contains(event.target as Node)
+      ) {
         setIsNotificationOpen(false);
       }
     };
 
     if (isNotificationOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener("mousedown", handleClickOutside);
     }
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isNotificationOpen]);
 
@@ -151,7 +240,7 @@ export default function App() {
     }
     await supabase.auth.signOut();
     setSession(null);
-    setActiveTab('dashboard');
+    setActiveTab("dashboard");
   };
 
   if (!authHydrated) {
@@ -169,12 +258,20 @@ export default function App() {
   if (userRole === null) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-6 text-center">
-        <p className="text-gray-800 font-medium max-w-md mb-2">Your Supabase Auth user needs a role in metadata.</p>
+        <p className="text-gray-800 font-medium max-w-md mb-2">
+          Your Supabase Auth user needs a role in metadata.
+        </p>
         <p className="text-sm text-gray-600 max-w-lg mb-6">
-          In Supabase Dashboard → Authentication → Users → select your user → User Metadata,
-          add for example{' '}
-          <code className="bg-gray-200 px-1 rounded text-xs">{'{ "role": "admin" }'}</code> or{' '}
-          <code className="bg-gray-200 px-1 rounded text-xs">{'{ "role": "employee" }'}</code>, then refresh this page.
+          In Supabase Dashboard → Authentication → Users → select your user →
+          User Metadata, add for example{" "}
+          <code className="bg-gray-200 px-1 rounded text-xs">
+            {'{ "role": "admin" }'}
+          </code>{" "}
+          or{" "}
+          <code className="bg-gray-200 px-1 rounded text-xs">
+            {'{ "role": "employee" }'}
+          </code>
+          , then refresh this page.
         </p>
         <button
           type="button"
@@ -187,11 +284,11 @@ export default function App() {
     );
   }
 
-  if (userRole === 'employee') {
+  if (userRole === "employee") {
     return (
       <EmployeePortal
         onSignOut={() => void handleSignOut()}
-        identifier={session.user.email ?? ''}
+        identifier={session.user.email ?? ""}
       />
     );
   }
@@ -201,7 +298,7 @@ export default function App() {
     setPayrollSettings(newSettings);
     void db.settings.save(
       newSettings.pensionRate,
-      newSettings.taxBrackets.map(b => ({
+      newSettings.taxBrackets.map((b) => ({
         min_income: b.minIncome,
         max_income: b.maxIncome,
         rate: b.rate,
@@ -211,18 +308,18 @@ export default function App() {
 
     // Add notification
     addNotification(
-      'Settings Updated',
-      'Payroll settings have been successfully saved'
+      "Settings Updated",
+      "Payroll settings have been successfully saved",
     );
   };
 
   const navigationItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'employees', label: 'Employee Management', icon: Users },
-    { id: 'payroll', label: 'Payroll Processing', icon: DollarSign },
-    { id: 'reports', label: 'Payroll Reports', icon: FileText },
-    { id: 'auditing', label: 'Auditing', icon: FileText },
-    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "employees", label: "Employee Management", icon: Users },
+    { id: "payroll", label: "Payroll Processing", icon: DollarSign },
+    { id: "reports", label: "Payroll Reports", icon: FileText },
+    { id: "auditing", label: "Auditing", icon: FileText },
+    { id: "settings", label: "Settings", icon: Settings },
   ];
 
   // Filter employee updates based on search and department
@@ -232,41 +329,59 @@ export default function App() {
       update.action.toLowerCase().includes(searchQuery.toLowerCase()) ||
       update.department.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesDepartment = departmentFilter === 'all' || update.department === departmentFilter;
+    const matchesDepartment =
+      departmentFilter === "all" || update.department === departmentFilter;
 
     return matchesSearch && matchesDepartment;
   });
 
-  const departments = ['all', ...Array.from(new Set(recentEmployeeUpdates.map(u => u.department)))];
+  const departments = [
+    "all",
+    ...Array.from(new Set(recentEmployeeUpdates.map((u) => u.department))),
+  ];
 
   // Mark notification as read
   const markAsRead = (notificationId: number) => {
-    setNotificationData(prevData =>
-      prevData.map(n => n.id === notificationId ? { ...n, unread: false } : n)
+    setNotificationData((prevData) =>
+      prevData.map((n) =>
+        n.id === notificationId ? { ...n, unread: false } : n,
+      ),
     );
     void db.notifications.markRead(notificationId);
   };
 
   // Clear all notifications
   const clearAllNotifications = () => {
-    setNotificationData(prevData =>
-      prevData.map(n => ({ ...n, unread: false }))
+    setNotificationData((prevData) =>
+      prevData.map((n) => ({ ...n, unread: false })),
     );
     void db.notifications.clearAll();
   };
 
   // View all notifications (navigate to notifications view)
   const viewAllNotifications = () => {
-    setActiveTab('notifications');
+    setActiveTab("notifications");
     setIsNotificationOpen(false);
   };
 
-  // Add new notification
+  // Add new notification, fallback to local notification if DB insert is blocked by RLS.
   const addNotification = (title: string, message: string) => {
-    void db.notifications.add(title, message).then((row) => {
-      const ui = toUi(row);
-      setNotificationData(prevData => [ui, ...prevData]);
-    });
+    void db.notifications
+      .add(title, message)
+      .then((row) => {
+        const ui = toUi(row);
+        setNotificationData((prevData) => [ui, ...prevData]);
+      })
+      .catch(() => {
+        const fallback = {
+          id: Date.now(),
+          title,
+          message,
+          time: "Just now",
+          unread: true,
+        };
+        setNotificationData((prevData) => [fallback, ...prevData]);
+      });
   };
 
   return (
@@ -274,7 +389,7 @@ export default function App() {
       {/* Sidebar */}
       <aside
         className={`${
-          isSidebarOpen ? 'w-64' : 'w-0'
+          isSidebarOpen ? "w-64" : "w-0"
         } bg-white border-r border-gray-200 transition-all duration-300 overflow-hidden flex-shrink-0`}
       >
         <div className="h-full flex flex-col">
@@ -294,8 +409,8 @@ export default function App() {
                   onClick={() => setActiveTab(item.id)}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
                     activeTab === item.id
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-gray-700 hover:bg-gray-50'
+                      ? "bg-blue-50 text-blue-600"
+                      : "text-gray-700 hover:bg-gray-50"
                   }`}
                 >
                   <Icon className="w-5 h-5" />
@@ -344,8 +459,12 @@ export default function App() {
                 )}
               </button>
               <div>
-                <h2 className="text-xl font-semibold text-gray-900">Dashboard</h2>
-                <p className="text-sm text-gray-500">Welcome back, {adminName}</p>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Dashboard
+                </h2>
+                <p className="text-sm text-gray-500">
+                  Welcome back, {adminName}
+                </p>
               </div>
             </div>
 
@@ -367,8 +486,12 @@ export default function App() {
                     <div className="p-4 border-b border-gray-200">
                       <div className="flex items-center justify-between">
                         <div>
-                          <h3 className="font-semibold text-gray-900">Notifications</h3>
-                          <p className="text-xs text-gray-500 mt-1">{unreadCount} unread notifications</p>
+                          <h3 className="font-semibold text-gray-900">
+                            Notifications
+                          </h3>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {unreadCount} unread notifications
+                          </p>
                         </div>
                         {unreadCount > 0 && (
                           <button
@@ -386,14 +509,20 @@ export default function App() {
                           key={notification.id}
                           onClick={() => markAsRead(notification.id)}
                           className={`p-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${
-                            notification.unread ? 'bg-blue-50' : ''
+                            notification.unread ? "bg-blue-50" : ""
                           }`}
                         >
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
-                              <h4 className="text-sm font-medium text-gray-900">{notification.title}</h4>
-                              <p className="text-sm text-gray-600 mt-1">{notification.message}</p>
-                              <p className="text-xs text-gray-400 mt-2">{notification.time}</p>
+                              <h4 className="text-sm font-medium text-gray-900">
+                                {notification.title}
+                              </h4>
+                              <p className="text-sm text-gray-600 mt-1">
+                                {notification.message}
+                              </p>
+                              <p className="text-xs text-gray-400 mt-2">
+                                {notification.time}
+                              </p>
                             </div>
                             {notification.unread && (
                               <div className="w-2 h-2 bg-blue-500 rounded-full mt-1"></div>
@@ -419,7 +548,7 @@ export default function App() {
 
         {/* Dashboard Content */}
         <main className="flex-1 overflow-auto p-6">
-          {activeTab === 'dashboard' && (
+          {activeTab === "dashboard" && (
             <div className="space-y-6">
               {/* Summary Widgets */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -427,9 +556,15 @@ export default function App() {
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-gray-500 mb-1">Total Payroll This Month</p>
-                      <p className="text-3xl font-semibold text-gray-900">{summaryData.totalPayroll}</p>
-                      <p className="text-sm text-green-600 mt-2">+12.5% from last month</p>
+                      <p className="text-sm text-gray-500 mb-1">
+                        Total Payroll This Month
+                      </p>
+                      <p className="text-3xl font-semibold text-gray-900">
+                        {summaryData.totalPayroll}
+                      </p>
+                      <p className="text-sm text-green-600 mt-2">
+                        +12.5% from last month
+                      </p>
                     </div>
                     <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
                       <DollarSign className="w-6 h-6 text-blue-600" />
@@ -441,9 +576,15 @@ export default function App() {
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-gray-500 mb-1">Pending Audits</p>
-                      <p className="text-3xl font-semibold text-gray-900">{summaryData.pendingAudits}</p>
-                      <p className="text-sm text-orange-600 mt-2">Requires attention</p>
+                      <p className="text-sm text-gray-500 mb-1">
+                        Pending Audits
+                      </p>
+                      <p className="text-3xl font-semibold text-gray-900">
+                        {summaryData.pendingAudits}
+                      </p>
+                      <p className="text-sm text-orange-600 mt-2">
+                        Requires attention
+                      </p>
                     </div>
                     <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
                       <FileText className="w-6 h-6 text-orange-600" />
@@ -455,9 +596,15 @@ export default function App() {
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-gray-500 mb-1">Recent Employee Updates</p>
-                      <p className="text-3xl font-semibold text-gray-900">{summaryData.recentUpdates}</p>
-                      <p className="text-sm text-gray-600 mt-2">In the last 7 days</p>
+                      <p className="text-sm text-gray-500 mb-1">
+                        Recent Employee Updates
+                      </p>
+                      <p className="text-3xl font-semibold text-gray-900">
+                        {summaryData.recentUpdates}
+                      </p>
+                      <p className="text-sm text-gray-600 mt-2">
+                        In the last 7 days
+                      </p>
                     </div>
                     <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
                       <Users className="w-6 h-6 text-purple-600" />
@@ -470,32 +617,46 @@ export default function App() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Payroll Trends Chart */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-1">Payroll Trends</h3>
-                  <p className="text-sm text-gray-500 mb-4">Monthly payroll over the last 6 months</p>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                    Payroll Trends
+                  </h3>
+                  <p className="text-sm text-gray-500 mb-4">
+                    Monthly payroll over the last 6 months
+                  </p>
                   <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={payrollTrendsData} id="payroll-trends-chart" margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
+                    <LineChart
+                      data={payrollTrendsData}
+                      id="payroll-trends-chart"
+                      margin={{ top: 5, right: 5, bottom: 5, left: 5 }}
+                    >
                       <defs>
                         <clipPath id="payroll-trends-clip">
                           <rect x="0" y="0" width="100%" height="100%" />
                         </clipPath>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="month" tick={{ fill: '#6b7280', fontSize: 12 }} />
-                      <YAxis tick={{ fill: '#6b7280', fontSize: 12 }} />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fill: "#6b7280", fontSize: 12 }}
+                      />
+                      <YAxis tick={{ fill: "#6b7280", fontSize: 12 }} />
                       <Tooltip
                         contentStyle={{
-                          backgroundColor: '#fff',
-                          border: '1px solid #e5e7eb',
-                          borderRadius: '8px',
+                          backgroundColor: "#fff",
+                          border: "1px solid #e5e7eb",
+                          borderRadius: "8px",
                         }}
-                        formatter={(value: number) => [`$${value.toLocaleString()}`, 'Amount']}
+                        formatter={(value: number) => [
+                          `$${value.toLocaleString()}`,
+                          "Amount",
+                        ]}
                       />
                       <Line
                         type="monotone"
                         dataKey="amount"
                         stroke="#3b82f6"
                         strokeWidth={2}
-                        dot={{ fill: '#3b82f6', r: 4 }}
+                        dot={{ fill: "#3b82f6", r: 4 }}
                         clipPath="url(#payroll-trends-clip)"
                       />
                     </LineChart>
@@ -504,27 +665,46 @@ export default function App() {
 
                 {/* Department Payroll Chart */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-1">Payroll by Department</h3>
-                  <p className="text-sm text-gray-500 mb-4">Current month distribution</p>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                    Payroll by Department
+                  </h3>
+                  <p className="text-sm text-gray-500 mb-4">
+                    Current month distribution
+                  </p>
                   <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={departmentPayrollData} id="department-payroll-chart" margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
+                    <BarChart
+                      data={departmentPayrollData}
+                      id="department-payroll-chart"
+                      margin={{ top: 5, right: 5, bottom: 5, left: 5 }}
+                    >
                       <defs>
                         <clipPath id="department-payroll-clip">
                           <rect x="0" y="0" width="100%" height="100%" />
                         </clipPath>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                      <XAxis dataKey="department" tick={{ fill: '#6b7280', fontSize: 12 }} />
-                      <YAxis tick={{ fill: '#6b7280', fontSize: 12 }} />
+                      <XAxis
+                        dataKey="department"
+                        tick={{ fill: "#6b7280", fontSize: 12 }}
+                      />
+                      <YAxis tick={{ fill: "#6b7280", fontSize: 12 }} />
                       <Tooltip
                         contentStyle={{
-                          backgroundColor: '#fff',
-                          border: '1px solid #e5e7eb',
-                          borderRadius: '8px',
+                          backgroundColor: "#fff",
+                          border: "1px solid #e5e7eb",
+                          borderRadius: "8px",
                         }}
-                        formatter={(value: number) => [`$${value.toLocaleString()}`, 'Amount']}
+                        formatter={(value: number) => [
+                          `$${value.toLocaleString()}`,
+                          "Amount",
+                        ]}
                       />
-                      <Bar dataKey="amount" fill="#8b5cf6" radius={[8, 8, 0, 0]} clipPath="url(#department-payroll-clip)" />
+                      <Bar
+                        dataKey="amount"
+                        fill="#8b5cf6"
+                        radius={[8, 8, 0, 0]}
+                        clipPath="url(#department-payroll-clip)"
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -535,8 +715,12 @@ export default function App() {
                 <div className="p-6 border-b border-gray-200">
                   <div className="flex items-center justify-between mb-4">
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-900">Recent Employee Updates</h3>
-                      <p className="text-sm text-gray-500 mt-1">Latest changes to employee records</p>
+                      <h3 className="text-lg font-semibold text-gray-900">
+                        Recent Employee Updates
+                      </h3>
+                      <p className="text-sm text-gray-500 mt-1">
+                        Latest changes to employee records
+                      </p>
                     </div>
                   </div>
 
@@ -561,7 +745,7 @@ export default function App() {
                       >
                         {departments.map((dept) => (
                           <option key={dept} value={dept}>
-                            {dept === 'all' ? 'All Departments' : dept}
+                            {dept === "all" ? "All Departments" : dept}
                           </option>
                         ))}
                       </select>
@@ -593,19 +777,24 @@ export default function App() {
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="flex items-center">
                                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-sm">
-                                  {update.name.split(' ').map(n => n[0]).join('')}
+                                  {update.name
+                                    .split(" ")
+                                    .map((n) => n[0])
+                                    .join("")}
                                 </div>
-                                <span className="ml-3 text-sm text-gray-900">{update.name}</span>
+                                <span className="ml-3 text-sm text-gray-900">
+                                  {update.name}
+                                </span>
                               </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                               <span
                                 className={`inline-flex px-2 py-1 text-xs rounded-full ${
-                                  update.action === 'Added'
-                                    ? 'bg-green-100 text-green-700'
-                                    : update.action === 'Updated'
-                                    ? 'bg-blue-100 text-blue-700'
-                                    : 'bg-purple-100 text-purple-700'
+                                  update.action === "Added"
+                                    ? "bg-green-100 text-green-700"
+                                    : update.action === "Updated"
+                                      ? "bg-blue-100 text-blue-700"
+                                      : "bg-purple-100 text-purple-700"
                                 }`}
                               >
                                 {update.action}
@@ -621,8 +810,12 @@ export default function App() {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={4} className="px-6 py-8 text-center text-sm text-gray-500">
-                            No employee updates found matching your search criteria
+                          <td
+                            colSpan={4}
+                            className="px-6 py-8 text-center text-sm text-gray-500"
+                          >
+                            No employee updates found matching your search
+                            criteria
                           </td>
                         </tr>
                       )}
@@ -634,16 +827,24 @@ export default function App() {
               {/* Quick Actions */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-sm p-6 text-white">
-                  <h3 className="text-lg font-semibold mb-2">Process Payroll</h3>
-                  <p className="text-sm text-blue-100 mb-4">Run payroll for the current pay period</p>
+                  <h3 className="text-lg font-semibold mb-2">
+                    Process Payroll
+                  </h3>
+                  <p className="text-sm text-blue-100 mb-4">
+                    Run payroll for the current pay period
+                  </p>
                   <button className="bg-white text-blue-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-50 transition-colors">
                     Start Processing
                   </button>
                 </div>
 
                 <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-sm p-6 text-white">
-                  <h3 className="text-lg font-semibold mb-2">Generate Reports</h3>
-                  <p className="text-sm text-purple-100 mb-4">Create detailed payroll and audit reports</p>
+                  <h3 className="text-lg font-semibold mb-2">
+                    Generate Reports
+                  </h3>
+                  <p className="text-sm text-purple-100 mb-4">
+                    Create detailed payroll and audit reports
+                  </p>
                   <button className="bg-white text-purple-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-50 transition-colors">
                     Create Report
                   </button>
@@ -652,30 +853,41 @@ export default function App() {
             </div>
           )}
 
-          {activeTab !== 'dashboard' && (
+          {activeTab !== "dashboard" && (
             <>
-              {activeTab === 'employees' ? (
+              {activeTab === "employees" ? (
                 <EmployeeDirectory onNotification={addNotification} />
-              ) : activeTab === 'payroll' ? (
-                <PayrollProcessing settings={payrollSettings} onNotification={addNotification} />
-              ) : activeTab === 'reports' ? (
+              ) : activeTab === "payroll" ? (
+                <PayrollProcessing
+                  settings={payrollSettings}
+                  onNotification={addNotification}
+                />
+              ) : activeTab === "reports" ? (
                 <PayrollReports />
-              ) : activeTab === 'auditing' ? (
+              ) : activeTab === "auditing" ? (
                 <AuditQueue />
-              ) : activeTab === 'notifications' ? (
+              ) : activeTab === "notifications" ? (
                 <Notifications
                   notifications={notificationData}
                   onMarkAsRead={markAsRead}
                   onClearAll={clearAllNotifications}
                 />
-              ) : activeTab === 'settings' ? (
-                <SettingsComponent settings={payrollSettings} onSave={handleSaveSettings} />
+              ) : activeTab === "settings" ? (
+                <SettingsComponent
+                  settings={payrollSettings}
+                  onSave={handleSaveSettings}
+                />
               ) : (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
                   <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                    {navigationItems.find(item => item.id === activeTab)?.label}
+                    {
+                      navigationItems.find((item) => item.id === activeTab)
+                        ?.label
+                    }
                   </h3>
-                  <p className="text-gray-500">This section is under development</p>
+                  <p className="text-gray-500">
+                    This section is under development
+                  </p>
                 </div>
               )}
             </>

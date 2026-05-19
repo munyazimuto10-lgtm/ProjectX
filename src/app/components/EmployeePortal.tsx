@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+// Import React hooks and utilities
+import React, { useEffect, useMemo, useState } from "react";
+// Import icon components
 import {
   User,
   FileText,
@@ -13,61 +15,127 @@ import {
   Phone,
   LogOut,
   X,
-  Save
-} from 'lucide-react';
-import { db } from '@/lib/db';
-import type { Employee, PayrollEntryRow } from '@/lib/db';
+  Save,
+} from "lucide-react";
+// Import database layer
+import { db } from "@/lib/db";
+// Import types
+import type { Employee, PayrollEntryRow } from "@/lib/db";
 
+// Props for EmployeePortal component
 interface EmployeePortalProps {
+  // Callback to handle sign out
   onSignOut: () => void;
+  // Employee identifier (email or ID)
   identifier: string;
 }
 
-const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }) => {
-  const [activeView, setActiveView] = useState<'home' | 'payment-history' | 'tax-forms' | 'profile'>('home');
+// Latest payslip data structure
+interface LatestPayslip {
+  // Date payslip was processed
+  date: string;
+  // Total gross pay before deductions
+  grossPay: number;
+  // Pay after deductions
+  netPay: number;
+  // Total deductions (tax + pension)
+  deductions: number;
+  // Pay period start date
+  periodStart: string;
+  // Pay period end date
+  periodEnd: string;
+}
+
+// Employee portal component showing employee self-service features
+const EmployeePortal: React.FC<EmployeePortalProps> = ({
+  onSignOut,
+  identifier,
+}) => {
+  // Current view being displayed (home, payment history, tax forms, profile)
+  const [activeView, setActiveView] = useState<
+    "home" | "payment-history" | "tax-forms" | "profile"
+  >("home");
+  // Tracks whether employee profile is being edited
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  // Current employee data
   const [employee, setEmployee] = useState<Employee | null>(null);
+  // Array of all payroll entries for this employee
   const [entries, setEntries] = useState<PayrollEntryRow[]>([]);
+  // Loading state while fetching data
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
+  // Error message if loading fails
+  const [loadError, setLoadError] = useState("");
 
-  const [editedEmployee, setEditedEmployee] = useState({ name: '', email: '', phone: '' });
+  // Edited profile fields (temporary until saved)
+  const [editedEmployee, setEditedEmployee] = useState({
+    name: "",
+    email: "",
+    phone: "",
+  });
 
+  // Load employee data and payroll entries on component mount
   useEffect(() => {
+    // Track whether component is still mounted (to avoid state updates after unmount)
     let cancelled = false;
+    // Set initial loading state
     setLoading(true);
-    setLoadError('');
+    // Clear any previous errors
+    setLoadError("");
 
+    // Async function to load employee and payroll data
     (async () => {
       try {
+        // Get employee by email or ID
         const emp = await db.employees.getByIdentifier(identifier);
+        // If component unmounted, don't update state
         if (cancelled) return;
+        // Set employee data
         setEmployee(emp);
-        setEditedEmployee({ name: emp?.name ?? '', email: emp?.email ?? '', phone: emp?.phone ?? '' });
+        // Initialize edit fields with current employee data
+        setEditedEmployee({
+          name: emp?.name ?? "",
+          email: emp?.email ?? "",
+          phone: emp?.phone ?? "",
+        });
 
+        // If employee found, load their payroll entries
         if (emp) {
           const rows = await db.payroll.listEmployeeEntries(emp.id);
+          // If component unmounted, don't update state
           if (cancelled) return;
+          // Set payroll entries
           setEntries(rows);
         } else {
+          // No employee found
           setEntries([]);
         }
       } catch (e) {
+        // If component unmounted, don't update state
         if (cancelled) return;
-        setLoadError((e as { message?: string })?.message ?? 'Failed to load employee portal data');
+        // Set error message
+        setLoadError(
+          (e as { message?: string })?.message ??
+            "Failed to load employee portal data",
+        );
       } finally {
+        // Only update if component still mounted
         if (!cancelled) setLoading(false);
       }
     })();
 
+    // Cleanup function to mark component as unmounted
     return () => {
       cancelled = true;
     };
   }, [identifier]);
 
+  // Get the most recent payroll entry
   const latestEntry = entries[0] ?? null;
+  // Memoize calculation of latest payslip from most recent entry
   const latestPayslip = useMemo(() => {
+    // Return null if no entries exist
     if (!latestEntry) return null;
+    // Calculate payslip data from entry
     return {
       date: latestEntry.processed_date,
       grossPay: Number(latestEntry.base_pay ?? 0),
@@ -88,10 +156,12 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
           </div>
           <div>
             <h1 className="text-2xl font-semibold">Welcome back,</h1>
-            <p className="text-xl">{employee?.name ?? 'Employee'}</p>
+            <p className="text-xl">{employee?.name ?? "Employee"}</p>
           </div>
         </div>
-        <p className="text-blue-100 mt-2">{employee?.position ?? '—'} • {employee?.department ?? '—'}</p>
+        <p className="text-blue-100 mt-2">
+          {employee?.position ?? "—"} • {employee?.department ?? "—"}
+        </p>
       </div>
 
       {/* Latest Payslip Card */}
@@ -99,8 +169,12 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
         <div className="bg-gradient-to-r from-green-50 to-emerald-50 px-6 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Latest Payslip</h2>
-              <p className="text-sm text-gray-600">{latestPayslip?.date ?? 'No payslips yet'}</p>
+              <h2 className="text-lg font-semibold text-gray-900">
+                Latest Payslip
+              </h2>
+              <p className="text-sm text-gray-600">
+                {latestPayslip?.date ?? "No payslips yet"}
+              </p>
             </div>
             <FileText className="w-6 h-6 text-green-600" />
           </div>
@@ -109,27 +183,37 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
         <div className="p-6 space-y-4">
           <div className="bg-green-50 rounded-xl p-4 border border-green-200">
             <p className="text-sm text-green-700 font-medium mb-1">Net Pay</p>
-            <p className="text-3xl font-bold text-green-800">${(latestPayslip?.netPay ?? 0).toLocaleString()}</p>
+            <p className="text-3xl font-bold text-green-800">
+              ${(latestPayslip?.netPay ?? 0).toLocaleString()}
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-gray-50 rounded-xl p-4">
               <p className="text-xs text-gray-600 mb-1">Gross Pay</p>
-              <p className="text-xl font-semibold text-gray-900">${(latestPayslip?.grossPay ?? 0).toLocaleString()}</p>
+              <p className="text-xl font-semibold text-gray-900">
+                ${(latestPayslip?.grossPay ?? 0).toLocaleString()}
+              </p>
             </div>
             <div className="bg-gray-50 rounded-xl p-4">
               <p className="text-xs text-gray-600 mb-1">Deductions</p>
-              <p className="text-xl font-semibold text-gray-900">${(latestPayslip?.deductions ?? 0).toLocaleString()}</p>
+              <p className="text-xl font-semibold text-gray-900">
+                ${(latestPayslip?.deductions ?? 0).toLocaleString()}
+              </p>
             </div>
           </div>
 
           <div className="pt-2">
             <p className="text-xs text-gray-500">
-              Pay Period: {latestPayslip?.periodStart ?? '—'} - {latestPayslip?.periodEnd ?? '—'}
+              Pay Period: {latestPayslip?.periodStart ?? "—"} -{" "}
+              {latestPayslip?.periodEnd ?? "—"}
             </p>
           </div>
 
-          <button disabled className="w-full bg-green-600 text-white py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-green-700 transition-colors active:scale-98 disabled:opacity-60 disabled:cursor-not-allowed">
+          <button
+            disabled
+            className="w-full bg-green-600 text-white py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-green-700 transition-colors active:scale-98 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
             <Download className="w-5 h-5" />
             Download Payslip
           </button>
@@ -139,7 +223,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
       {/* Navigation Cards */}
       <div className="grid grid-cols-1 gap-4">
         <button
-          onClick={() => setActiveView('payment-history')}
+          onClick={() => setActiveView("payment-history")}
           className="bg-white rounded-xl shadow-md border border-gray-200 p-6 flex items-center justify-between hover:shadow-lg transition-all active:scale-98"
         >
           <div className="flex items-center gap-4">
@@ -147,7 +231,9 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
               <History className="w-6 h-6 text-blue-600" />
             </div>
             <div className="text-left">
-              <h3 className="font-semibold text-gray-900 text-lg">Payment History</h3>
+              <h3 className="font-semibold text-gray-900 text-lg">
+                Payment History
+              </h3>
               <p className="text-sm text-gray-500">View all past payments</p>
             </div>
           </div>
@@ -155,7 +241,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
         </button>
 
         <button
-          onClick={() => setActiveView('tax-forms')}
+          onClick={() => setActiveView("tax-forms")}
           className="bg-white rounded-xl shadow-md border border-gray-200 p-6 flex items-center justify-between hover:shadow-lg transition-all active:scale-98"
         >
           <div className="flex items-center gap-4">
@@ -171,7 +257,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
         </button>
 
         <button
-          onClick={() => setActiveView('profile')}
+          onClick={() => setActiveView("profile")}
           className="bg-white rounded-xl shadow-md border border-gray-200 p-6 flex items-center justify-between hover:shadow-lg transition-all active:scale-98"
         >
           <div className="flex items-center gap-4">
@@ -179,7 +265,9 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
               <Settings className="w-6 h-6 text-orange-600" />
             </div>
             <div className="text-left">
-              <h3 className="font-semibold text-gray-900 text-lg">Profile Settings</h3>
+              <h3 className="font-semibold text-gray-900 text-lg">
+                Profile Settings
+              </h3>
               <p className="text-sm text-gray-500">Manage your information</p>
             </div>
           </div>
@@ -192,33 +280,47 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
   const renderPaymentHistory = () => (
     <div className="space-y-4">
       <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Payment History</h2>
-        <p className="text-sm text-gray-600 mb-6">View and download all your payment records</p>
+        <h2 className="text-xl font-semibold text-gray-900 mb-4">
+          Payment History
+        </h2>
+        <p className="text-sm text-gray-600 mb-6">
+          View and download all your payment records
+        </p>
 
         <div className="space-y-3">
-          {entries.length > 0 ? entries.map((payment) => (
-            <div
-              key={payment.id}
-              className="bg-gray-50 rounded-xl p-4 flex items-center justify-between hover:bg-gray-100 transition-colors"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-                  <DollarSign className="w-6 h-6 text-green-600" />
+          {entries.length > 0 ? (
+            entries.map((payment) => (
+              <div
+                key={payment.id}
+                className="bg-gray-50 rounded-xl p-4 flex items-center justify-between hover:bg-gray-100 transition-colors"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                    <DollarSign className="w-6 h-6 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900">
+                      {payment.processed_date}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      {payment.department}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-semibold text-gray-900">{payment.processed_date}</p>
-                  <p className="text-sm text-gray-500">{payment.department}</p>
+                <div className="text-right">
+                  <p className="font-semibold text-gray-900">
+                    ${Number(payment.net_pay ?? 0).toLocaleString()}
+                  </p>
+                  <span className="inline-block px-3 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">
+                    Paid
+                  </span>
                 </div>
               </div>
-              <div className="text-right">
-                <p className="font-semibold text-gray-900">${Number(payment.net_pay ?? 0).toLocaleString()}</p>
-                <span className="inline-block px-3 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">
-                  Paid
-                </span>
-              </div>
+            ))
+          ) : (
+            <div className="text-sm text-gray-500 text-center py-10">
+              No payment history yet.
             </div>
-          )) : (
-            <div className="text-sm text-gray-500 text-center py-10">No payment history yet.</div>
           )}
         </div>
       </div>
@@ -229,7 +331,9 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
     <div className="space-y-4">
       <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6">
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Tax Forms</h2>
-        <p className="text-sm text-gray-600 mb-6">Download your tax documents</p>
+        <p className="text-sm text-gray-600 mb-6">
+          Download your tax documents
+        </p>
 
         <div className="space-y-3">
           <div className="text-sm text-gray-500 text-center py-10">
@@ -243,7 +347,9 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
   const renderProfile = () => (
     <div className="space-y-4">
       <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-6">Profile Settings</h2>
+        <h2 className="text-xl font-semibold text-gray-900 mb-6">
+          Profile Settings
+        </h2>
 
         {/* Profile Photo */}
         <div className="flex justify-center mb-6">
@@ -265,7 +371,9 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
                 <User className="w-5 h-5 text-gray-600" />
                 <p className="text-sm text-gray-600">Full Name</p>
               </div>
-              <p className="text-base font-semibold text-gray-900 pl-8">{employee?.name ?? '—'}</p>
+              <p className="text-base font-semibold text-gray-900 pl-8">
+                {employee?.name ?? "—"}
+              </p>
             </div>
 
             <div className="bg-gray-50 rounded-xl p-4">
@@ -273,7 +381,9 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
                 <Mail className="w-5 h-5 text-gray-600" />
                 <p className="text-sm text-gray-600">Email</p>
               </div>
-              <p className="text-base font-semibold text-gray-900 pl-8">{employee?.email ?? '—'}</p>
+              <p className="text-base font-semibold text-gray-900 pl-8">
+                {employee?.email ?? "—"}
+              </p>
             </div>
 
             <div className="bg-gray-50 rounded-xl p-4">
@@ -281,7 +391,9 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
                 <Phone className="w-5 h-5 text-gray-600" />
                 <p className="text-sm text-gray-600">Phone</p>
               </div>
-              <p className="text-base font-semibold text-gray-900 pl-8">{employee?.phone ?? '—'}</p>
+              <p className="text-base font-semibold text-gray-900 pl-8">
+                {employee?.phone ?? "—"}
+              </p>
             </div>
 
             <div className="bg-gray-50 rounded-xl p-4">
@@ -289,7 +401,9 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
                 <Building className="w-5 h-5 text-gray-600" />
                 <p className="text-sm text-gray-600">Department</p>
               </div>
-              <p className="text-base font-semibold text-gray-900 pl-8">{employee?.department ?? '—'}</p>
+              <p className="text-base font-semibold text-gray-900 pl-8">
+                {employee?.department ?? "—"}
+              </p>
             </div>
 
             <div className="bg-gray-50 rounded-xl p-4">
@@ -297,7 +411,9 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
                 <Calendar className="w-5 h-5 text-gray-600" />
                 <p className="text-sm text-gray-600">Employee ID</p>
               </div>
-              <p className="text-base font-semibold text-gray-900 pl-8">{employee?.id ?? '—'}</p>
+              <p className="text-base font-semibold text-gray-900 pl-8">
+                {employee?.id ?? "—"}
+              </p>
             </div>
           </div>
         ) : (
@@ -310,7 +426,9 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
               <input
                 type="text"
                 value={editedEmployee.name}
-                onChange={(e) => setEditedEmployee({ ...editedEmployee, name: e.target.value })}
+                onChange={(e) =>
+                  setEditedEmployee({ ...editedEmployee, name: e.target.value })
+                }
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -323,7 +441,12 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
               <input
                 type="email"
                 value={editedEmployee.email}
-                onChange={(e) => setEditedEmployee({ ...editedEmployee, email: e.target.value })}
+                onChange={(e) =>
+                  setEditedEmployee({
+                    ...editedEmployee,
+                    email: e.target.value,
+                  })
+                }
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -336,14 +459,20 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
               <input
                 type="tel"
                 value={editedEmployee.phone}
-                onChange={(e) => setEditedEmployee({ ...editedEmployee, phone: e.target.value })}
+                onChange={(e) =>
+                  setEditedEmployee({
+                    ...editedEmployee,
+                    phone: e.target.value,
+                  })
+                }
                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
             <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
               <p className="text-sm text-blue-800">
-                <strong>Note:</strong> Department and Employee ID cannot be changed. Contact HR for assistance.
+                <strong>Note:</strong> Department and Employee ID cannot be
+                changed. Contact HR for assistance.
               </p>
             </div>
           </div>
@@ -373,9 +502,9 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
               onClick={() => {
                 setIsEditingProfile(false);
                 setEditedEmployee({
-                  name: employee?.name ?? '',
-                  email: employee?.email ?? '',
-                  phone: employee?.phone ?? '',
+                  name: employee?.name ?? "",
+                  email: employee?.email ?? "",
+                  phone: employee?.phone ?? "",
                 });
               }}
               className="flex-1 bg-gray-100 text-gray-700 py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-gray-200 transition-colors active:scale-98"
@@ -387,8 +516,19 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
               onClick={() => {
                 if (!employee) return;
                 db.employees
-                  .update(employee.id, { name: editedEmployee.name, email: editedEmployee.email, phone: editedEmployee.phone })
-                  .then(() => setEmployee({ ...employee, name: editedEmployee.name, email: editedEmployee.email, phone: editedEmployee.phone }))
+                  .update(employee.id, {
+                    name: editedEmployee.name,
+                    email: editedEmployee.email,
+                    phone: editedEmployee.phone,
+                  })
+                  .then(() =>
+                    setEmployee({
+                      ...employee,
+                      name: editedEmployee.name,
+                      email: editedEmployee.email,
+                      phone: editedEmployee.phone,
+                    }),
+                  )
                   .finally(() => setIsEditingProfile(false));
               }}
               className="flex-1 bg-green-600 text-white py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-green-700 transition-colors active:scale-98"
@@ -405,14 +545,20 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
   return (
     <div className="min-h-screen bg-gray-50">
       {loading && (
-        <div className="max-w-2xl mx-auto px-4 py-6 text-gray-500">Loading employee portal...</div>
+        <div className="max-w-2xl mx-auto px-4 py-6 text-gray-500">
+          Loading employee portal...
+        </div>
       )}
       {!loading && loadError && (
-        <div className="max-w-2xl mx-auto px-4 py-6 text-red-600">{loadError}</div>
+        <div className="max-w-2xl mx-auto px-4 py-6 text-red-600">
+          {loadError}
+        </div>
       )}
       {!loading && !loadError && !employee && (
         <div className="max-w-2xl mx-auto px-4 py-6 text-gray-600">
-          Could not find an employee for <span className="font-medium">{identifier}</span>. Try signing in with an employee ID (e.g. EMP001) or the employee email.
+          Could not find an employee for{" "}
+          <span className="font-medium">{identifier}</span>. Try signing in with
+          an employee ID (e.g. EMP001) or the employee email.
           <div className="mt-4">
             <button
               onClick={onSignOut}
@@ -424,19 +570,19 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
         </div>
       )}
       {/* Header */}
-      {activeView !== 'home' && (
+      {activeView !== "home" && (
         <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
           <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-4">
             <button
-              onClick={() => setActiveView('home')}
+              onClick={() => setActiveView("home")}
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <ChevronRight className="w-6 h-6 text-gray-600 rotate-180" />
             </button>
             <h1 className="text-lg font-semibold text-gray-900">
-              {activeView === 'payment-history' && 'Payment History'}
-              {activeView === 'tax-forms' && 'Tax Forms'}
-              {activeView === 'profile' && 'Profile Settings'}
+              {activeView === "payment-history" && "Payment History"}
+              {activeView === "tax-forms" && "Tax Forms"}
+              {activeView === "profile" && "Profile Settings"}
             </h1>
           </div>
         </div>
@@ -446,10 +592,10 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
       <div className="max-w-2xl mx-auto px-4 py-6 pb-24">
         {!loading && !loadError && employee && (
           <>
-            {activeView === 'home' && renderHome()}
-            {activeView === 'payment-history' && renderPaymentHistory()}
-            {activeView === 'tax-forms' && renderTaxForms()}
-            {activeView === 'profile' && renderProfile()}
+            {activeView === "home" && renderHome()}
+            {activeView === "payment-history" && renderPaymentHistory()}
+            {activeView === "tax-forms" && renderTaxForms()}
+            {activeView === "profile" && renderProfile()}
           </>
         )}
       </div>
@@ -458,8 +604,8 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 safe-area-bottom">
         <div className="max-w-2xl mx-auto px-4 py-3 flex justify-around">
           <button
-            onClick={() => setActiveView('home')}
-            className={`flex flex-col items-center gap-1 p-2 ${activeView === 'home' ? 'text-blue-600' : 'text-gray-500'}`}
+            onClick={() => setActiveView("home")}
+            className={`flex flex-col items-center gap-1 p-2 ${activeView === "home" ? "text-blue-600" : "text-gray-500"}`}
           >
             <div className="w-6 h-6 flex items-center justify-center">
               <FileText className="w-6 h-6" />
@@ -467,8 +613,8 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
             <span className="text-xs font-medium">Home</span>
           </button>
           <button
-            onClick={() => setActiveView('payment-history')}
-            className={`flex flex-col items-center gap-1 p-2 ${activeView === 'payment-history' ? 'text-blue-600' : 'text-gray-500'}`}
+            onClick={() => setActiveView("payment-history")}
+            className={`flex flex-col items-center gap-1 p-2 ${activeView === "payment-history" ? "text-blue-600" : "text-gray-500"}`}
           >
             <div className="w-6 h-6 flex items-center justify-center">
               <History className="w-6 h-6" />
@@ -476,8 +622,8 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
             <span className="text-xs font-medium">History</span>
           </button>
           <button
-            onClick={() => setActiveView('tax-forms')}
-            className={`flex flex-col items-center gap-1 p-2 ${activeView === 'tax-forms' ? 'text-blue-600' : 'text-gray-500'}`}
+            onClick={() => setActiveView("tax-forms")}
+            className={`flex flex-col items-center gap-1 p-2 ${activeView === "tax-forms" ? "text-blue-600" : "text-gray-500"}`}
           >
             <div className="w-6 h-6 flex items-center justify-center">
               <FileText className="w-6 h-6" />
@@ -485,8 +631,8 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ onSignOut, identifier }
             <span className="text-xs font-medium">Forms</span>
           </button>
           <button
-            onClick={() => setActiveView('profile')}
-            className={`flex flex-col items-center gap-1 p-2 ${activeView === 'profile' ? 'text-blue-600' : 'text-gray-500'}`}
+            onClick={() => setActiveView("profile")}
+            className={`flex flex-col items-center gap-1 p-2 ${activeView === "profile" ? "text-blue-600" : "text-gray-500"}`}
           >
             <div className="w-6 h-6 flex items-center justify-center">
               <Settings className="w-6 h-6" />

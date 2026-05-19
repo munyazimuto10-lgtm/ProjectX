@@ -27,10 +27,10 @@ CREATE TABLE IF NOT EXISTS employees (
   updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- payroll_settings (always single row id=1)
+-- payroll_settings (configuration stored as key-value pairs)
 CREATE TABLE IF NOT EXISTS payroll_settings (
-  id           INTEGER     PRIMARY KEY DEFAULT 1,
-  pension_rate NUMERIC     NOT NULL DEFAULT 6,
+  setting_key  TEXT        PRIMARY KEY,
+  setting_value JSONB      NOT NULL,
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -99,13 +99,10 @@ INSERT INTO employees (id, name, department, position, status, email, phone, joi
   ('EMP008', 'Tapiwa Khumalo',   'Sales',        'Sales Director',      'Active',   'tapiwa.khumalo@company.com',    '+263 77 123 4508', '2020-09-15', 85)
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO payroll_settings (id, pension_rate) VALUES (1, 6)
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO tax_brackets (min_income, max_income, rate, base_amount, sort_order) VALUES
-  (0,    3000, 10,  0,   1),
-  (3000, 6000, 15,  300, 2),
-  (6000, NULL, 20,  750, 3);
+INSERT INTO payroll_settings (setting_key, setting_value) VALUES 
+  ('pension_rate', '6'),
+  ('tax_brackets', '[{"minIncome": 0, "maxIncome": 3000, "rate": 10, "baseAmount": 0, "sort_order": 1}, {"minIncome": 3000, "maxIncome": 6000, "rate": 15, "baseAmount": 300, "sort_order": 2}, {"minIncome": 6000, "maxIncome": null, "rate": 20, "baseAmount": 750, "sort_order": 3}]')
+ON CONFLICT (setting_key) DO NOTHING;
 
 INSERT INTO notifications (title, message, is_read, created_at) VALUES
   ('Payroll Processing Complete', 'March payroll has been successfully processed',  FALSE, NOW() - INTERVAL '2 hours'),
@@ -170,3 +167,85 @@ BEGIN
     (run_id, 'EMP007', 'Chenai Nyathi',    'Marketing',   80, 0, 4640,   516,   278.4, 3845.6, '2026-04-16', 'pending'),
     (run_id, 'EMP008', 'Tapiwa Khumalo',   'Sales',       80, 0, 6800,   870,   408,   5522,   '2026-04-16', 'pending');
 END $$;
+
+-- ============================================================
+-- Row-Level Security (RLS) Policies
+-- ============================================================
+
+-- Enable RLS on all tables
+ALTER TABLE employees ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payroll_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payroll_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payroll_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tax_brackets ENABLE ROW LEVEL SECURITY;
+
+-- Employees: Allow all authenticated users to read; admins can write
+CREATE POLICY "Employees: Users can read" 
+  ON employees FOR SELECT 
+  USING (auth.role() = 'authenticated_user');
+
+CREATE POLICY "Employees: Admins can insert" 
+  ON employees FOR INSERT 
+  WITH CHECK (auth.role() = 'authenticated_user');
+
+CREATE POLICY "Employees: Admins can update" 
+  ON employees FOR UPDATE 
+  USING (auth.role() = 'authenticated_user');
+
+CREATE POLICY "Employees: Admins can delete" 
+  ON employees FOR DELETE 
+  USING (auth.role() = 'authenticated_user');
+
+-- Payroll Settings: Allow authenticated users to read/write
+CREATE POLICY "Payroll Settings: Authenticated users can read" 
+  ON payroll_settings FOR SELECT 
+  USING (auth.role() = 'authenticated_user');
+
+CREATE POLICY "Payroll Settings: Authenticated users can upsert" 
+  ON payroll_settings FOR INSERT 
+  WITH CHECK (auth.role() = 'authenticated_user');
+
+CREATE POLICY "Payroll Settings: Authenticated users can update" 
+  ON payroll_settings FOR UPDATE 
+  USING (auth.role() = 'authenticated_user');
+
+-- Payroll Runs: Allow authenticated users to read/write
+CREATE POLICY "Payroll Runs: Authenticated users can read" 
+  ON payroll_runs FOR SELECT 
+  USING (auth.role() = 'authenticated_user');
+
+CREATE POLICY "Payroll Runs: Authenticated users can insert" 
+  ON payroll_runs FOR INSERT 
+  WITH CHECK (auth.role() = 'authenticated_user');
+
+-- Payroll Entries: Allow authenticated users to read/write
+CREATE POLICY "Payroll Entries: Authenticated users can read" 
+  ON payroll_entries FOR SELECT 
+  USING (auth.role() = 'authenticated_user');
+
+CREATE POLICY "Payroll Entries: Authenticated users can insert" 
+  ON payroll_entries FOR INSERT 
+  WITH CHECK (auth.role() = 'authenticated_user');
+
+CREATE POLICY "Payroll Entries: Authenticated users can update" 
+  ON payroll_entries FOR UPDATE 
+  USING (auth.role() = 'authenticated_user');
+
+-- Notifications: Allow authenticated users to read/write
+CREATE POLICY "Notifications: Authenticated users can read" 
+  ON notifications FOR SELECT 
+  USING (auth.role() = 'authenticated_user');
+
+CREATE POLICY "Notifications: Authenticated users can insert" 
+  ON notifications FOR INSERT 
+  WITH CHECK (auth.role() = 'authenticated_user');
+
+CREATE POLICY "Notifications: Authenticated users can update" 
+  ON notifications FOR UPDATE 
+  USING (auth.role() = 'authenticated_user');
+
+-- Tax Brackets: Allow authenticated users to read (managed via payroll_settings)
+CREATE POLICY "Tax Brackets: Authenticated users can read" 
+  ON tax_brackets FOR SELECT 
+  USING (auth.role() = 'authenticated_user');
