@@ -163,14 +163,19 @@ export function PayrollProcessing({
       }
 
       // Calculate pension contribution: percentage of gross pay
-      const pension = (totalCompensation * settings.pensionRate) / 100;
+      const pension = Number(
+        ((totalCompensation * settings.pensionRate) / 100).toFixed(2),
+      );
+      const roundedBasePay = Number(totalCompensation.toFixed(2));
+      const roundedTax = Number(tax.toFixed(2));
+      const netPay = Number((roundedBasePay - roundedTax - pension).toFixed(2));
       // Return updated employee with all calculated values
       return {
         ...emp,
-        basePay: totalCompensation,
-        tax,
+        basePay: roundedBasePay,
+        tax: roundedTax,
         pension,
-        netPay: totalCompensation - tax - pension,
+        netPay,
       };
     });
 

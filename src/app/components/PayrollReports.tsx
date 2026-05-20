@@ -58,7 +58,10 @@ const PayrollReports: React.FC = () => {
   // Load report data on component mount or when dateRange changes
   useEffect(() => {
     // Fetch both department stats and year-to-date data in parallel
-    Promise.all([db.payroll.departmentStats(), db.payroll.ytd(dateRange)])
+    Promise.all([
+      db.payroll.departmentStats(dateRange),
+      db.payroll.ytd(dateRange),
+    ])
       .then(([deptStats, ytd]) => {
         // Transform department stats data
         setDepartmentData(

@@ -44,6 +44,10 @@ interface LatestPayslip {
   periodStart: string;
   // Pay period end date
   periodEnd: string;
+  // URL to download the generated payslip
+  fileUrl?: string | null;
+  // Optional payslip record ID
+  payslipId?: string | null;
 }
 
 // Employee portal component showing employee self-service features
@@ -100,7 +104,11 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({
 
         // If employee found, load their payroll entries
         if (emp) {
-          const rows = await db.payroll.listEmployeeEntries(emp.id);
+          const employeeKey = emp.internal_uuid ?? emp.id;
+          console.log(
+            `EmployeePortal: using employeeKey=${employeeKey} to fetch payroll entries`,
+          );
+          const rows = await db.payroll.listEmployeeEntries(employeeKey);
           // If component unmounted, don't update state
           if (cancelled) return;
           // Set payroll entries
@@ -141,8 +149,10 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({
       grossPay: Number(latestEntry.base_pay ?? 0),
       netPay: Number(latestEntry.net_pay ?? 0),
       deductions: Number((latestEntry.tax ?? 0) + (latestEntry.pension ?? 0)),
-      periodStart: latestEntry.processed_date,
-      periodEnd: latestEntry.processed_date,
+      periodStart: latestEntry.pay_period_start,
+      periodEnd: latestEntry.pay_period_end,
+      fileUrl: (latestEntry as any).payslip_file_url ?? null,
+      payslipId: (latestEntry as any).payslip_id ?? null,
     };
   }, [latestEntry]);
 
@@ -211,11 +221,17 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({
           </div>
 
           <button
-            disabled
+            disabled={!latestPayslip?.fileUrl}
+            onClick={() => {
+              if (!latestPayslip?.fileUrl) return;
+              window.open(latestPayslip.fileUrl, "_blank");
+            }}
             className="w-full bg-green-600 text-white py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-green-700 transition-colors active:scale-98 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <Download className="w-5 h-5" />
-            Download Payslip
+            {latestPayslip?.fileUrl
+              ? "Download Payslip"
+              : "No Payslip Available"}
           </button>
         </div>
       </div>

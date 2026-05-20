@@ -183,69 +183,69 @@ ALTER TABLE tax_brackets ENABLE ROW LEVEL SECURITY;
 -- Employees: Allow all authenticated users to read; admins can write
 CREATE POLICY "Employees: Users can read" 
   ON employees FOR SELECT 
-  USING (auth.role() = 'authenticated_user');
+  USING (auth.role() = 'authenticated');
 
 CREATE POLICY "Employees: Admins can insert" 
   ON employees FOR INSERT 
-  WITH CHECK (auth.role() = 'authenticated_user');
+  WITH CHECK (auth.role() = 'authenticated');
 
 CREATE POLICY "Employees: Admins can update" 
   ON employees FOR UPDATE 
-  USING (auth.role() = 'authenticated_user');
+  USING (auth.role() = 'authenticated');
 
 CREATE POLICY "Employees: Admins can delete" 
   ON employees FOR DELETE 
-  USING (auth.role() = 'authenticated_user');
+  USING (auth.role() = 'authenticated');
 
 -- Payroll Settings: Allow authenticated users to read/write
 CREATE POLICY "Payroll Settings: Authenticated users can read" 
   ON payroll_settings FOR SELECT 
-  USING (auth.role() = 'authenticated_user');
+  USING (auth.role() = 'authenticated');
 
 CREATE POLICY "Payroll Settings: Authenticated users can upsert" 
   ON payroll_settings FOR INSERT 
-  WITH CHECK (auth.role() = 'authenticated_user');
+  WITH CHECK (auth.role() = 'authenticated');
 
 CREATE POLICY "Payroll Settings: Authenticated users can update" 
   ON payroll_settings FOR UPDATE 
-  USING (auth.role() = 'authenticated_user');
+  USING (auth.role() = 'authenticated');
 
 -- Payroll Runs: Allow authenticated users to read/write
 CREATE POLICY "Payroll Runs: Authenticated users can read" 
   ON payroll_runs FOR SELECT 
-  USING (auth.role() = 'authenticated_user');
+  USING (auth.role() = 'authenticated');
 
 CREATE POLICY "Payroll Runs: Authenticated users can insert" 
   ON payroll_runs FOR INSERT 
-  WITH CHECK (auth.role() = 'authenticated_user');
+  WITH CHECK (auth.role() = 'authenticated');
 
 -- Payroll Entries: Allow authenticated users to read/write
 CREATE POLICY "Payroll Entries: Authenticated users can read" 
   ON payroll_entries FOR SELECT 
-  USING (auth.role() = 'authenticated_user');
+  USING (auth.role() = 'authenticated');
 
 CREATE POLICY "Payroll Entries: Authenticated users can insert" 
   ON payroll_entries FOR INSERT 
-  WITH CHECK (auth.role() = 'authenticated_user');
+  WITH CHECK (auth.role() = 'authenticated');
 
 CREATE POLICY "Payroll Entries: Authenticated users can update" 
   ON payroll_entries FOR UPDATE 
-  USING (auth.role() = 'authenticated_user');
+  USING (auth.role() = 'authenticated');
 
 -- Notifications: Allow authenticated users to read/write
 CREATE POLICY "Notifications: Authenticated users can read" 
   ON notifications FOR SELECT 
-  USING (auth.role() = 'authenticated_user');
+  USING (auth.role() = 'authenticated');
 
 CREATE POLICY "Notifications: Authenticated users can insert" 
   ON notifications FOR INSERT 
-  WITH CHECK (auth.role() = 'authenticated_user');
+  WITH CHECK (auth.role() = 'authenticated');
 
 CREATE POLICY "Notifications: Authenticated users can update" 
   ON notifications FOR UPDATE 
-  USING (auth.role() = 'authenticated_user');
+  USING (auth.role() = 'authenticated');
 
 -- Tax Brackets: Allow authenticated users to read (managed via payroll_settings)
 CREATE POLICY "Tax Brackets: Authenticated users can read" 
   ON tax_brackets FOR SELECT 
-  USING (auth.role() = 'authenticated_user');
+  USING (auth.role() = 'authenticated');

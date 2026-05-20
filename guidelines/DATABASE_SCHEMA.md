@@ -439,6 +439,36 @@ CREATE POLICY payroll_records_update_admin ON payroll_records FOR UPDATE
         )
     );
 
+-- Payslips policies
+CREATE POLICY payslips_select_own ON payslips FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM users WHERE users.id = auth.uid() AND users.role IN ('admin', 'accountant')
+        )
+        OR
+        employee_id IN (
+            SELECT id FROM employees WHERE user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY payslips_insert_own ON payslips FOR INSERT
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM users WHERE users.id = auth.uid() AND users.role IN ('admin', 'accountant')
+        )
+        OR
+        employee_id IN (
+            SELECT id FROM employees WHERE user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY payslips_update_own ON payslips FOR UPDATE
+    USING (
+        employee_id IN (
+            SELECT id FROM employees WHERE user_id = auth.uid()
+        )
+    );
+
 -- Tax forms policies
 CREATE POLICY tax_forms_select_own ON tax_forms FOR SELECT
     USING (

@@ -122,6 +122,10 @@ export interface PayrollEntryRow {
   pension: number;
   // Net pay (basePay - tax - pension)
   net_pay: number;
+  // Pay period start date
+  pay_period_start: string;
+  // Pay period end date
+  pay_period_end: string;
   // Date when payroll was processed
   processed_date: string;
   // Current audit status: pending review, approved, or flagged
@@ -132,6 +136,11 @@ export interface PayrollEntryRow {
   audit_date: string | null;
   // Audit comments (if flagged)
   audit_comments: string | null;
+  // Payslip (if generated) associated with this payroll entry
+  payslip_id?: string | null;
+  payslip_file_url?: string | null;
+  payslip_file_path?: string | null;
+  payslip_generated_at?: string | null;
 }
 
 // Notification data from the database
@@ -839,16 +848,21 @@ async function savePayrollRun(
   const rowsToInsert: Record<string, unknown>[] = [];
   for (const e of entries) {
     const employee_pk = (await resolveEmployeePk(e.employee_id)) ?? null;
+    const grossPay = Number(e.base_pay.toFixed(2));
+    const totalTaxes = Number((e.tax ?? 0).toFixed(2));
+    const pensionContribution = Number((e.pension ?? 0).toFixed(2));
+    const totalDeductions = pensionContribution;
+    const netPay = Number(e.net_pay.toFixed(2));
     rowsToInsert.push({
       employee_id: employee_pk,
       pay_period_start: pay_period_start,
       pay_period_end: pay_period_end,
       payment_date: processedDate,
-      gross_pay: e.base_pay,
-      net_pay: e.net_pay,
-      total_deductions: e.pension ?? 0,
-      total_taxes: e.tax ?? 0,
-      pension_contribution: e.pension ?? 0,
+      gross_pay: grossPay,
+      net_pay: netPay,
+      total_deductions: totalDeductions,
+      total_taxes: totalTaxes,
+      pension_contribution: pensionContribution,
       overtime_hours: e.overtime_hours ?? 0,
       overtime_pay: 0,
       bonus: 0,
@@ -905,25 +919,99 @@ async function listEmployeePayrollEntries(
       .select("id")
       .eq("employee_id", empPk)
       .maybeSingle();
-    if (data && (data as any).id) empPk = (data as any).id as string;
+    if (data && (data as any).id) {
+      empPk = (data as any).id as string;
+      console.log(`Resolved employee ${empPk} from identifier ${employeeId}`);
+    } else {
+      console.warn(`Could not resolve employee identifier: ${employeeId}`);
+    }
   }
 
-  const { data, error } = await supabase
+  // Fetch payroll records for the employee
+  const { data: payrollData, error: payrollError } = await supabase
     .from("payroll_records")
-    .select("*, employees(first_name, last_name, employee_id)")
+    .select("*")
     .eq("employee_id", empPk)
     .order("payment_date", { ascending: false });
-  if (error) throw error;
 
-  return (data ?? []).map((r: any) => {
+  if (payrollError) {
+    console.error("Error fetching payroll records:", payrollError);
+    throw payrollError;
+  }
+
+  if (!payrollData || payrollData.length === 0) {
+    console.log(
+      `No payroll records found for employee ${empPk}. Check RLS policies and employee-user linkage.`,
+    );
+    return [];
+  }
+
+  console.log(
+    `Found ${payrollData.length} payroll records for employee ${empPk}`,
+  );
+
+  // Fetch employee details
+  const { data: empData, error: empError } = await supabase
+    .from("employees")
+    .select("id, first_name, last_name, department_id")
+    .eq("id", empPk)
+    .maybeSingle();
+
+  if (empError) {
+    console.error("Error fetching employee:", empError);
+  }
+
+  // Fetch department if we have a department_id
+  let departmentName = "";
+  if (empData && (empData as any).department_id) {
+    const { data: deptData } = await supabase
+      .from("departments")
+      .select("name")
+      .eq("id", (empData as any).department_id)
+      .maybeSingle();
+    if (deptData) departmentName = (deptData as any).name;
+  }
+
+  const employeeName =
+    empData && (empData as any).first_name && (empData as any).last_name
+      ? `${(empData as any).first_name} ${(empData as any).last_name}`.trim()
+      : "";
+
+  console.log(
+    `Mapping ${payrollData.length} payroll entries for ${employeeName}`,
+  );
+  // Attempt to fetch payslips attached to these payroll records
+  const payrollIds = (payrollData as any[])
+    .map((p: any) => p.id)
+    .filter(Boolean);
+  let payslipMap: Record<string, any> = {};
+  if (payrollIds.length > 0) {
+    const { data: payslipData, error: payslipError } = await supabase
+      .from("payslips")
+      .select("*")
+      .in("payroll_record_id", payrollIds as string[]);
+    if (payslipError) {
+      console.error("Error fetching payslips:", payslipError);
+    } else if (payslipData) {
+      payslipData.forEach((ps: any) => {
+        const key = String(ps.payroll_record_id || "");
+        if (!key) return;
+        const existing = payslipMap[key];
+        if (!existing) payslipMap[key] = ps;
+        else if (new Date(ps.generated_at) > new Date(existing.generated_at))
+          payslipMap[key] = ps;
+      });
+    }
+  }
+
+  return (payrollData as any[]).map((r: any) => {
+    const ps = payslipMap[String(r.id)];
     return {
       id: r.id,
       payroll_run_id: null as any,
       employee_id: String(r.employee_id ?? ""),
-      name: r.employees
-        ? `${r.employees.first_name} ${r.employees.last_name}`.trim()
-        : "",
-      department: "",
+      name: employeeName,
+      department: departmentName,
       hours_worked: 0,
       overtime_hours: Number(r.overtime_hours ?? 0),
       paid_leave_hours: 0,
@@ -932,11 +1020,17 @@ async function listEmployeePayrollEntries(
       tax: Number(r.total_taxes ?? 0),
       pension: Number(r.pension_contribution ?? 0),
       net_pay: Number(r.net_pay ?? 0),
+      pay_period_start: String(r.pay_period_start ?? ""),
+      pay_period_end: String(r.pay_period_end ?? ""),
       processed_date: String(r.payment_date ?? r.processed_at ?? ""),
       audit_status: "pending",
       auditor: null,
       audit_date: null,
       audit_comments: null,
+      payslip_id: ps?.id ?? null,
+      payslip_file_url: ps?.file_url ?? null,
+      payslip_file_path: ps?.file_path ?? null,
+      payslip_generated_at: ps?.generated_at ?? null,
     } as PayrollEntryRow;
   });
 }
@@ -1086,22 +1180,63 @@ async function getYtdPayroll(
   }));
 }
 
-async function getDepartmentStats(): Promise<
-  { department: string; totalSalary: number; employees: number }[]
-> {
-  // Use department_payroll view for department statistics
+async function getDepartmentStats(
+  year?: string,
+): Promise<{ department: string; totalSalary: number; employees: number }[]> {
+  // Query payroll data grouped by department for the specified year (or current year if not provided)
+  const targetYear = year ?? new Date().getFullYear().toString();
+  const from = `${targetYear}-01-01`;
+  const to = `${targetYear}-12-31 23:59:59`;
+
   const { data } = await supabase
-    .from("department_payroll")
-    .select(
-      "department_name, employee_count, total_base_salary, total_gross_pay, total_net_pay",
-    );
-  if (!data) return [];
-  return (data ?? []).map((r: any) => ({
-    department: r.department_name,
-    totalSalary: Number(
-      r.total_net_pay ?? r.total_gross_pay ?? r.total_base_salary ?? 0,
-    ),
-    employees: Number(r.employee_count ?? 0),
+    .from("payroll_records")
+    .select("employee_id, net_pay")
+    .gte("payment_date", from)
+    .lte("payment_date", to);
+
+  if (!data || data.length === 0) return [];
+
+  // Fetch employees with their departments to group payroll by department
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, department_id")
+    .neq("employment_status", "terminated");
+
+  // Create a map of employee ID to department ID
+  const empToDept = new Map(
+    (employees ?? []).map((e: any) => [e.id, e.department_id]),
+  );
+
+  // Fetch department names
+  const { data: departments } = await supabase
+    .from("departments")
+    .select("id, name");
+
+  const deptMap = new Map((departments ?? []).map((d: any) => [d.id, d.name]));
+
+  // Aggregate data by department
+  const deptStats: Record<
+    string,
+    { totalSalary: number; employeesSet: Set<string> }
+  > = {};
+
+  for (const r of data as any[]) {
+    const deptId = empToDept.get(r.employee_id);
+    const deptName = deptId ? deptMap.get(deptId) : null;
+
+    if (deptName) {
+      if (!deptStats[deptName]) {
+        deptStats[deptName] = { totalSalary: 0, employeesSet: new Set() };
+      }
+      deptStats[deptName].totalSalary += Number(r.net_pay ?? 0);
+      deptStats[deptName].employeesSet.add(r.employee_id);
+    }
+  }
+
+  return Object.entries(deptStats).map(([department, stats]) => ({
+    department,
+    totalSalary: stats.totalSalary,
+    employees: stats.employeesSet.size,
   }));
 }
 
@@ -1145,11 +1280,12 @@ async function listAuditEntries(): Promise<PayrollEntryRow[]> {
       processed_date: r
         ? String(r.payment_date ?? r.processed_at ?? "")
         : String(a.created_at ?? ""),
-      audit_status:
-        (a.status as "pending" | "approved" | "flagged") ?? "pending",
+      audit_status: (a.status as "pending" | "approved" | "flagged") ?? "pending",
       auditor: null,
       audit_date: a.reviewed_at ?? null,
       audit_comments: a.review_notes ?? null,
+      pay_period_start: "",
+      pay_period_end: ""
     });
   }
   return out;
